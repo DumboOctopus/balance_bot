@@ -2,7 +2,6 @@
 
 // constants
 const int MPU=0x68; 
-const double second_to_rad = DEG_TO_RAD/3600.0;
 const int DELAY = 50;
 const double D_CLOCK = DELAY / 1000.0;
 
@@ -17,7 +16,7 @@ struct ultrasonic_t{
   int pingPin;
 };
 struct gyro_t {
-  double ac_x,ac_y,ac_z,tmp;
+  double ac_x,ac_y,ac_z;
   double gy_x, gy_y, gy_z;
 };
 struct motor_t {
@@ -72,22 +71,22 @@ void setup() {
 }
 
 void loop() {
-   long duration, inches, cm;
-   cm = read_ultrasonic(ultra_forward);
+  long duration, inches, cm;
+  cm = read_ultrasonic(ultra_forward);
   read_gyro(gyro);
   
-  double dxdt = height * cos(second_to_rad *total_theta);
+  double dxdt = height * sin(DEG_TO_RAD *total_theta);
   double dthdt = dxdt/wheel_radius;
 
   set_motor_speed(dthdt*255*10, right_motor, left_motor);
   
-  Serial.print("Gyroscope: ");
-  Serial.print(" | T = "); Serial.print(second_to_rad *total_theta);
-  Serial.print(" | Y = "); Serial.print(gyro.gy_y);
-  Serial.print(" | total theta = "); Serial.print(total_theta);
-  Serial.print(" | dx/dt = "); Serial.print(dxdt);
+ // Serial.print("Gyroscope: ");
+ // Serial.print(" | T = "); Serial.print(second_to_rad *total_theta);
+ // Serial.print(" | Y = "); Serial.print(gyro.gy_y);
+ // Serial.print(" | total theta = "); Serial.print(total_theta);
+ // Serial.print(" | dx/dt = "); Serial.print(dxdt);
 
-  Serial.println(" ");
+ // Serial.println(" ");
 
    
   delay(DELAY);
@@ -101,14 +100,30 @@ void read_gyro(struct gyro_t &g){
   g.ac_x = Wire.read()<<8 | Wire.read(); // reading registers: 0x3B (ACCEL_XOUT_H) and 0x3C (ACCEL_XOUT_L)
   g.ac_y = Wire.read()<<8 | Wire.read(); // reading registers: 0x3D (ACCEL_YOUT_H) and 0x3E (ACCEL_YOUT_L)
   g.ac_z = Wire.read()<<8 | Wire.read(); // reading registers: 0x3F (ACCEL_ZOUT_H) and 0x40 (ACCEL_ZOUT_L)
-  //g.tmp = Wire.read()<<8 | Wire.read(); // reading registers: 0x41 (TEMP_OUT_H) and 0x42 (TEMP_OUT_L)
+
   g.gy_x = Wire.read()<<8 | Wire.read(); // reading registers: 0x43 (GYRO_XOUT_H) and 0x44 (GYRO_XOUT_L)
   g.gy_y = (int16_t)(Wire.read()<<8 | Wire.read()); // reading registers: 0x45 (GYRO_YOUT_H) and 0x46 (GYRO_YOUT_L)
   
   g.gy_z = Wire.read()<<8 | Wire.read(); // reading registers: 0x47 (GYRO_ZOUT_H) and 0x48 (GYRO_ZOUT_L)
 
+  g.gy_x *= 1/1800.0; // minutes
+  g.gy_y *= 1/1800.0;
+  g.gy_z *= 1/1800.0;
+  if(-0.1 <= g.gy_y && g.gy_y <= 0.1)
+    g.gy_y = 0; 
+  
+  
   total_theta += gyro.gy_y;
-  g.gy_y *= second_to_rad;
+
+
+  Serial.print("Gyroscope: ");
+  Serial.print(" | X = "); Serial.print(gyro.gy_x);
+  Serial.print(" | Y = "); Serial.print(gyro.gy_y);
+  Serial.print(" | Z = "); Serial.print(gyro.gy_z);
+  Serial.print(" | total theta = "); Serial.print(total_theta);
+  Serial.println(" ");
+  
+  
 }
 
 
