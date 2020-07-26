@@ -2,12 +2,13 @@
 
 // constants
 const int MPU=0x68; 
-const int DELAY = 50;
-const double D_CLOCK = DELAY / 1000.0;
+const int DELAY = 10;
+const double g = 9.8;
 
-// all in centimeters
-const double height = 16.5; 
-const double wheel_radius = 3.5; 
+// all in meters
+const double height = 16.5/100.0; 
+const double wheel_radius = 3.5/100.0; 
+const double mass = 0.390; // killo grams
 
 
 // structs
@@ -33,6 +34,11 @@ struct gyro_t gyro;
 struct motor_t right_motor;
 struct motor_t left_motor;
 double total_theta = 0;
+
+// for timing
+unsigned long previousMillis = 0;
+unsigned long gyZeroClock = 0;
+bool isZero = true;
 
 
 void setup() {
@@ -71,14 +77,51 @@ void setup() {
 }
 
 void loop() {
+  
   long duration, inches, cm;
   cm = read_ultrasonic(ultra_forward);
-  read_gyro(gyro);
-  
-  double dxdt = height * sin(DEG_TO_RAD *total_theta);
-  double dthdt = dxdt/wheel_radius;
 
-  set_motor_speed(dthdt*255*10, right_motor, left_motor);
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - previousMillis >= DELAY) {
+    previousMillis = currentMillis;
+    
+    
+    read_gyro(gyro);
+    bool newIsZero = -0.001 <= gyro.gy_y && gyro.gy_y <= 0.001;
+    if(!isZero && newIsZero){
+      gyZeroClock = currentMillis;
+    } else if(isZero && !newIsZero){
+      unsigned long total = currentMillis - gyZeroClock;
+      total_theta -= min(total/500.0, 1) * total_theta;
+    }
+    isZero = newIsZero;
+    
+
+    // formula = h/r cos(theta) * dtheta/dt
+    // dtheta/dt = gyro + acceleration calculated from theta
+    double I = (1/3.0)*mass*height*height;
+    double alpha = height/1.5 * g * sin(DEG_TO_RAD*total_theta)/I;
+    
+    double dthetadt = DEG_TO_RAD * gyro.gy_y +  DELAY/1000.0*alpha;
+    double value = height/wheel_radius * cos(DEG_TO_RAD * total_theta) * dthetadt;
+    double translate = 255* value;
+    set_motor_speed(translate, right_motor, left_motor);
+
+    //set_motor_speed(255, right_motor, left_motor);  
+    
+
+    //Serial.print("Gyroscope: ");
+    //Serial.print(" | Y = "); Serial.print(gyro.gy_y);
+    //Serial.print(" | C = "); Serial.print(translate);
+    //Serial.print(" | total theta = "); Serial.print(total_theta);
+    //  Serial.println(" ");
+  }
+  
+  
+  
+
+  
   
  // Serial.print("Gyroscope: ");
  // Serial.print(" | T = "); Serial.print(second_to_rad *total_theta);
@@ -88,8 +131,6 @@ void loop() {
 
  // Serial.println(" ");
 
-   
-  delay(DELAY);
 }
 
 void read_gyro(struct gyro_t &g){
@@ -116,12 +157,7 @@ void read_gyro(struct gyro_t &g){
   total_theta += gyro.gy_y;
 
 
-  Serial.print("Gyroscope: ");
-  Serial.print(" | X = "); Serial.print(gyro.gy_x);
-  Serial.print(" | Y = "); Serial.print(gyro.gy_y);
-  Serial.print(" | Z = "); Serial.print(gyro.gy_z);
-  Serial.print(" | total theta = "); Serial.print(total_theta);
-  Serial.println(" ");
+  
   
   
 }
@@ -144,7 +180,15 @@ int read_ultrasonic(struct ultrasonic_t ultrasonic){
    return cm;
 }
 
+
+double lerp(double input, double end_output) {
+   return 255 * input / end_output;
+}
+
+
 //velocity between -255 and 255
+// 255 = 0.984 second/rev
+// 255/2 = 1.617 second/rev
 void set_motor_speed(int velocity, motor_t a, motor_t b){
   if(velocity == 0){
     digitalWrite(a.in1, LOW);
