@@ -3,12 +3,14 @@
 // constants
 const int MPU=0x68; 
 const int DELAY = 10;
-const double g = 9.8;
+const double g = 980; // cm /s ^2
 
 // all in meters
-const double height = 16.5/100.0; 
-const double wheel_radius = 3.5/100.0; 
-const double mass = 0.390; // killo grams
+const double height = 16.5;  // cm
+const double wheel_radius = 3.5; // cm
+const double mass = 390; // grams
+const double I = (1/3.0)*mass*height*height; // gram * cm ^2
+const double height_cg = 7;
 
 
 // structs
@@ -37,8 +39,7 @@ double total_theta = 0;
 
 // for timing
 unsigned long previousMillis = 0;
-unsigned long gyZeroClock = 0;
-bool isZero = true;
+
 
 
 void setup() {
@@ -88,48 +89,40 @@ void loop() {
     
     
     read_gyro(gyro);
-    bool newIsZero = -0.001 <= gyro.gy_y && gyro.gy_y <= 0.001;
-    if(!isZero && newIsZero){
-      gyZeroClock = currentMillis;
-    } else if(isZero && !newIsZero){
-      unsigned long total = currentMillis - gyZeroClock;
-      total_theta -= min(total/500.0, 1) * total_theta;
-    }
-    isZero = newIsZero;
     
 
     // formula = h/r cos(theta) * dtheta/dt
     // dtheta/dt = gyro + acceleration calculated from theta
-    double I = (1/3.0)*mass*height*height;
-    double alpha = height/1.5 * g * sin(DEG_TO_RAD*total_theta)/I;
+    double theta_rad  =DEG_TO_RAD*total_theta;
     
-    double dthetadt = DEG_TO_RAD * gyro.gy_y +  DELAY/1000.0*alpha;
+    double true_torque_arm = sqrt(wheel_radius*wheel_radius + height_cg*height_cg + 2*wheel_radius*height_cg*cos(theta_rad));
+    double alpha = asin(true_torque_arm * sin(height_cg * g * sin(theta_rad)/I) / height_cg);
+    
+    
+    double dthetadt = DEG_TO_RAD*gyro.gy_y + DELAY/1000.0*alpha;
     double value = height/wheel_radius * cos(DEG_TO_RAD * total_theta) * dthetadt;
-    double translate = 255* value;
+    double translate = 4*255* value;
     set_motor_speed(translate, right_motor, left_motor);
+#if 1
+    Serial.print("Data: ");
+    Serial.print(" | DEG_TO_RAD*gyro.gy_y = "); Serial.print(DEG_TO_RAD*gyro.gy_y);
+    Serial.print(" | true_torque_arm = "); Serial.print(true_torque_arm);
+    Serial.print(" | alpha = "); Serial.print(alpha);
+    Serial.print(" | value = "); Serial.print(value);
+      Serial.println(" ");
 
-    //set_motor_speed(255, right_motor, left_motor);  
+#endif
     
-
-    //Serial.print("Gyroscope: ");
-    //Serial.print(" | Y = "); Serial.print(gyro.gy_y);
-    //Serial.print(" | C = "); Serial.print(translate);
-    //Serial.print(" | total theta = "); Serial.print(total_theta);
-    //  Serial.println(" ");
+#if 0
+    Serial.print("Gyroscope: ");
+    Serial.print(" | Y = "); Serial.print(gyro.gy_y);
+    Serial.print(" | C = "); Serial.print(translate);
+    Serial.print(" | total theta = "); Serial.print(total_theta);
+      Serial.println(" ");
+#endif
   }
   
-  
-  
 
-  
-  
- // Serial.print("Gyroscope: ");
- // Serial.print(" | T = "); Serial.print(second_to_rad *total_theta);
- // Serial.print(" | Y = "); Serial.print(gyro.gy_y);
- // Serial.print(" | total theta = "); Serial.print(total_theta);
- // Serial.print(" | dx/dt = "); Serial.print(dxdt);
-
- // Serial.println(" ");
 
 }
 
@@ -142,10 +135,11 @@ void read_gyro(struct gyro_t &g){
   g.ac_y = Wire.read()<<8 | Wire.read(); // reading registers: 0x3D (ACCEL_YOUT_H) and 0x3E (ACCEL_YOUT_L)
   g.ac_z = Wire.read()<<8 | Wire.read(); // reading registers: 0x3F (ACCEL_ZOUT_H) and 0x40 (ACCEL_ZOUT_L)
 
-  g.gy_x = Wire.read()<<8 | Wire.read(); // reading registers: 0x43 (GYRO_XOUT_H) and 0x44 (GYRO_XOUT_L)
+  g.gy_x = (int16_t)(Wire.read()<<8 | Wire.read()); // reading registers: 0x43 (GYRO_XOUT_H) and 0x44 (GYRO_XOUT_L)
   g.gy_y = (int16_t)(Wire.read()<<8 | Wire.read()); // reading registers: 0x45 (GYRO_YOUT_H) and 0x46 (GYRO_YOUT_L)
   
-  g.gy_z = Wire.read()<<8 | Wire.read(); // reading registers: 0x47 (GYRO_ZOUT_H) and 0x48 (GYRO_ZOUT_L)
+  g.gy_z = (int16_t)(Wire.read()<<8 | Wire.read()); // reading registers: 0x47 (GYRO_ZOUT_H) and 0x48 (GYRO_ZOUT_L)
+
 
   g.gy_x *= 1/1800.0; // minutes
   g.gy_y *= 1/1800.0;
