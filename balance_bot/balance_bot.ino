@@ -37,6 +37,10 @@ struct motor_t right_motor;
 struct motor_t left_motor;
 double total_theta = 0;
 
+double pitch;
+double lastError = 0;
+double Kp= 2, Ki=0.1, Kd=3;
+
 // for timing
 unsigned long previousMillis = 0;
 
@@ -87,12 +91,11 @@ void loop() {
   cm = read_ultrasonic(ultra_forward);
 
   unsigned long currentMillis = millis();
+  unsigned long elapsedTime = currentMillis - previousMillis;
 
-  if (currentMillis - previousMillis >= DELAY) {
-    previousMillis = currentMillis;
-    
-    
-     /* Get new sensor events with the readings */
+
+  if (elapsedTime >= DELAY) {
+   /* Get new sensor events with the readings */
     sensors_event_t a, g, temp;
     mpu.getEvent(&a, &g, &temp);
   
@@ -103,35 +106,38 @@ void loop() {
 //    Serial.print(a.acceleration.y);
 //    Serial.print(", Z: ");
 //    Serial.print(a.acceleration.z);
+
 //    Serial.println(" m/s^2");
-  
+    pitch += (double)(180/3.14 *g.gyro.x * elapsedTime /1000.0);
+    double error = pitch;
+    double cumError = error * elapsedTime;
+    double rateError = (error - lastError)/elapsedTime;
+    int output = (int)(Kp * error + Ki * cumError + Kd * rateError);
+    lastError = error;
+
+    if(output > 0){
+      output += 100;
+    } else if (output < 0){
+      output -= 100;
+    }
+    set_motor_speed(output, right_motor, left_motor);
+    
     Serial.print("Rotation X: ");
-    Serial.print(g.gyro.x);
-    Serial.print(", Y: ");
-    Serial.print(g.gyro.y);
-    Serial.print(", Z: ");
-    Serial.print(g.gyro.z);
-    Serial.println(" rad/s");
+    Serial.print(pitch);
+    Serial.print(", Output: ");
+    Serial.print(output);
+    Serial.println(" rad");
   
-    double roll = (atan2(a.acceleration.y, a.acceleration.z)*180.0)/M_PI;
-    total_theta = roll + 90;
-     
-
-
-    // formula = h/r cos(theta) * dtheta/dt
-    // dtheta/dt = gyro + acceleration calculated from theta
-    double theta_rad  = DEG_TO_RAD*total_theta;
-    
-    double true_torque_arm = sqrt(wheel_radius*wheel_radius + height_cg*height_cg + 2*wheel_radius*height_cg*cos(theta_rad));
-    double alpha = asin(true_torque_arm * sin(height_cg * gravity * sin(theta_rad)/I) / height_cg);
-    
-    
-    double dthetadt = g.gyro.x + alpha;
-    double value = height/wheel_radius * cos(DEG_TO_RAD * total_theta) * dthetadt;
-    double translate = 255*value/(2*PI);
-    Serial.print(value);
-    set_motor_speed(translate, right_motor, left_motor);
-
+//    Serial.print("Rotation X: ");
+//    Serial.print(g.gyro.x);
+//    Serial.print(", Y: ");
+//    Serial.print(g.gyro.y);
+//    Serial.print(", Z: ");
+//    Serial.print(g.gyro.z);
+//    Serial.println(" rad/s");
+  
+   
+    previousMillis = currentMillis;
   }
   
 
