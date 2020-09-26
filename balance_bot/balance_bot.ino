@@ -1,6 +1,6 @@
-#include <Adafruit_MPU6050.h>
-#include <Adafruit_Sensor.h>
 #include <Wire.h>
+#include <MPU6050.h>
+
 
 // constants
 const int MPU=0x68; 
@@ -32,14 +32,14 @@ struct motor_t {
 // global vars.
 struct ultrasonic_t ultra_down;
 struct ultrasonic_t ultra_forward;
-Adafruit_MPU6050 mpu;
+MPU6050 mpu;
 struct motor_t right_motor;
 struct motor_t left_motor;
 double total_theta = 0;
 
 double pitch;
 double lastError = 0;
-double Kp= 2, Ki=0.1, Kd=3;
+double Kp= 6, Ki=0.1, Kd=10.5;
 
 // for timing
 unsigned long previousMillis = 0;
@@ -57,13 +57,20 @@ void setup() {
 
 
   // gyro
-  // Try to initialize!
-  if (!mpu.begin()) {
-    Serial.println("Failed to find MPU6050 chip");
-    while (1) {
-      delay(10);
-    }
+  // Initialize MPU6050
+  while(!mpu.begin(MPU6050_SCALE_2000DPS, MPU6050_RANGE_2G))
+  {
+    Serial.println("Could not find a valid MPU6050 sensor, check wiring!");
+    delay(500);
   }
+  
+  // Calibrate gyroscope. The calibration must be at rest.
+  // If you don't want calibrate, comment this line.
+  mpu.calibrateGyro();
+
+  // Set threshold sensivty. Default 3.
+  // If you don't want use threshold, comment this line or set 0.
+  mpu.setThreshold(3);
 
   //motor right
   right_motor.enable = 5;
@@ -93,51 +100,39 @@ void loop() {
   unsigned long currentMillis = millis();
   unsigned long elapsedTime = currentMillis - previousMillis;
 
+  // NOte: try more delay, might be throttling
 
   if (elapsedTime >= DELAY) {
-   /* Get new sensor events with the readings */
-    sensors_event_t a, g, temp;
-    mpu.getEvent(&a, &g, &temp);
-  
-    /* Print out the values */
-//    Serial.print("Acceleration X: ");
-//    Serial.print(a.acceleration.x);
-//    Serial.print(", Y: ");
-//    Serial.print(a.acceleration.y);
-//    Serial.print(", Z: ");
-//    Serial.print(a.acceleration.z);
+    /* Get new sensor events with the readings */
+    
+  // Read normalized values 
+  Vector normAccel = mpu.readNormalizeAccel();
 
-//    Serial.println(" m/s^2");
-    pitch += (double)(180/3.14 *g.gyro.x * elapsedTime /1000.0);
-    double error = pitch;
+      //int pitch = -(atan2(normAccel.XAxis, sqrt(normAccel.YAxis*normAccel.YAxis + normAccel.ZAxis*normAccel.ZAxis))*180.0)/M_PI + 180;
+   int roll = (atan2(normAccel.YAxis, normAccel.ZAxis)*180.0)/M_PI + 90;
+
+    
+    
+    double error = roll-2;
     double cumError = error * elapsedTime;
     double rateError = (error - lastError)/elapsedTime;
     int output = (int)(Kp * error + Ki * cumError + Kd * rateError);
     lastError = error;
 
     if(output > 0){
-      output += 100;
+      output += 65;
     } else if (output < 0){
-      output -= 100;
+      output -= 65;
     }
     set_motor_speed(output, right_motor, left_motor);
     
     Serial.print("Rotation X: ");
-    Serial.print(pitch);
+    Serial.print(roll);
     Serial.print(", Output: ");
     Serial.print(output);
     Serial.println(" rad");
-  
-//    Serial.print("Rotation X: ");
-//    Serial.print(g.gyro.x);
-//    Serial.print(", Y: ");
-//    Serial.print(g.gyro.y);
-//    Serial.print(", Z: ");
-//    Serial.print(g.gyro.z);
-//    Serial.println(" rad/s");
-  
-   
-    previousMillis = currentMillis;
+
+    previousMillis = millis();
   }
   
 
