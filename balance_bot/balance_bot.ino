@@ -4,7 +4,7 @@
 
 // constants
 const int MPU=0x68; 
-const int DELAY = 10;
+const int DELAY = 2;
 int count=0;
 const double gravity = 980; // cm /s ^2
 
@@ -39,7 +39,8 @@ double total_theta = 0;
 
 double pitch;
 double lastError = 0;
-double Kp= 6, Ki=0.1, Kd=10.5;
+//double Kp= 2, Ki=0.1, Kd=3;
+double Kp= 6, Ki=0.1, Kd=3;
 
 // for timing
 unsigned long previousMillis = 0;
@@ -105,11 +106,15 @@ void loop() {
   if (elapsedTime >= DELAY) {
     /* Get new sensor events with the readings */
     
-  // Read normalized values 
-  Vector normAccel = mpu.readNormalizeAccel();
+    // Read normalized values 
+    Vector normAccel = mpu.readNormalizeAccel();
+    Serial.print("Time readNormalizeAccel() takes: ");
+    Serial.print(millis() - previousMillis);
+    
+
 
       //int pitch = -(atan2(normAccel.XAxis, sqrt(normAccel.YAxis*normAccel.YAxis + normAccel.ZAxis*normAccel.ZAxis))*180.0)/M_PI + 180;
-   int roll = (atan2(normAccel.YAxis, normAccel.ZAxis)*180.0)/M_PI + 90;
+    double roll = (atan2(normAccel.YAxis, normAccel.ZAxis)*180.0)/M_PI + 90;
 
     
     
@@ -119,20 +124,17 @@ void loop() {
     int output = (int)(Kp * error + Ki * cumError + Kd * rateError);
     lastError = error;
 
-    if(output > 0){
-      output += 65;
-    } else if (output < 0){
-      output -= 65;
-    }
+    
     set_motor_speed(output, right_motor, left_motor);
     
     Serial.print("Rotation X: ");
     Serial.print(roll);
     Serial.print(", Output: ");
     Serial.print(output);
-    Serial.println(" rad");
+    Serial.print(" ");
+    Serial.println(" ");
 
-    previousMillis = millis();
+    previousMillis = currentMillis;
   }
   
 
@@ -177,6 +179,7 @@ void set_motor_speed(int velocity, motor_t a, motor_t b){
     digitalWrite(b.in2, LOW);
     analogWrite(b.enable, 0);
   } else if(velocity > 0){
+    velocity += 70;
     digitalWrite(a.in1, LOW);
     digitalWrite(a.in2, HIGH);
     analogWrite(a.enable, min(velocity, 255));
@@ -185,6 +188,7 @@ void set_motor_speed(int velocity, motor_t a, motor_t b){
     digitalWrite(b.in2, HIGH);
     analogWrite(b.enable, min(velocity, 255));
   } else {
+    velocity -=70;
     digitalWrite(a.in1, HIGH);
     digitalWrite(a.in2, LOW);
     analogWrite(a.enable, min(-velocity, 255));
