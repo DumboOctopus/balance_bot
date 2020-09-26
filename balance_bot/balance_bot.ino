@@ -100,14 +100,17 @@ void loop() {
     mpu.getEvent(&a, &g, &temp);
   
     /* Print out the values */
-//    Serial.print("Acceleration X: ");
-//    Serial.print(a.acceleration.x);
-//    Serial.print(", Y: ");
-//    Serial.print(a.acceleration.y);
-//    Serial.print(", Z: ");
-//    Serial.print(a.acceleration.z);
+#if 1
+    Serial.print("Acceleration X: ");
+    Serial.print(a.acceleration.x);
+    Serial.print(", Y: ");
+    Serial.print(a.acceleration.y);
+    Serial.print(", Z: ");
+    Serial.print(a.acceleration.z);
 
-//    Serial.println(" m/s^2");
+    Serial.println(" m/s^2");
+#endif
+
     pitch += (double)(180/3.14 *g.gyro.x * elapsedTime /1000.0);
     double error = pitch;
     double cumError = error * elapsedTime;
@@ -121,13 +124,14 @@ void loop() {
       output -= 100;
     }
     set_motor_speed(output, right_motor, left_motor);
-    
+
+#if 0
     Serial.print("Rotation X: ");
     Serial.print(pitch);
     Serial.print(", Output: ");
     Serial.print(output);
     Serial.println(" rad");
-  
+#endif 
 //    Serial.print("Rotation X: ");
 //    Serial.print(g.gyro.x);
 //    Serial.print(", Y: ");
