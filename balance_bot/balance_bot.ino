@@ -39,7 +39,11 @@ double total_theta = 0;
 
 double pitch;
 double lastError = 0;
-double Kp= 2, Ki=0.1, Kd=3;
+double Kp= 10, Ki=0.1, Kd=3;
+
+float filteredAccX=0;
+float filteredAccY=-9.8;
+float filteredAccZ=0;
 
 // for timing
 unsigned long previousMillis = 0;
@@ -100,7 +104,7 @@ void loop() {
     mpu.getEvent(&a, &g, &temp);
   
     /* Print out the values */
-#if 1
+#if 0
     Serial.print("Acceleration X: ");
     Serial.print(a.acceleration.x);
     Serial.print(", Y: ");
@@ -110,19 +114,40 @@ void loop() {
 
     Serial.println(" m/s^2");
 #endif
+    float accXRaw = a.acceleration.x;
+    float accYRaw = a.acceleration.y;
+    float accZRaw = a.acceleration.z;
 
-    pitch += (double)(180/3.14 *g.gyro.x * elapsedTime /1000.0);
-    double error = pitch;
+    float alpha = 1;
+    filteredAccX = alpha*accXRaw + (1-alpha)*filteredAccX;
+    filteredAccY = alpha*accYRaw + (1-alpha)*filteredAccY;
+
+    filteredAccZ = alpha*accZRaw + (1-alpha)*filteredAccZ;
+
+#if 0
+    Serial.print("Acceleration X: ");
+    Serial.print(filteredAccX);
+    Serial.print(", Y: ");
+    Serial.print(filteredAccY);
+    Serial.print(", Z: ");
+    Serial.print(filteredAccZ);
+
+    Serial.println(" m/s^2");
+#endif
+
+    float roll;
+    if(-0.1 < filteredAccZ  && filteredAccZ < 0.1)
+      roll = 0;
+    else
+      roll = atan2(-filteredAccY,filteredAccZ)*RAD_TO_DEG-90;//90+ atan2(accY, sqrt(accX * accX + accZ * accZ)) * RAD_TO_DEG;
+    Serial.println(roll);
+    double error = -roll;
     double cumError = error * elapsedTime;
     double rateError = (error - lastError)/elapsedTime;
     int output = (int)(Kp * error + Ki * cumError + Kd * rateError);
     lastError = error;
 
-    if(output > 0){
-      output += 100;
-    } else if (output < 0){
-      output -= 100;
-    }
+    
     set_motor_speed(output, right_motor, left_motor);
 
 #if 0
@@ -142,6 +167,7 @@ void loop() {
   
    
     previousMillis = currentMillis;
+    //Serial.println(millis() - currentMillis);
   }
   
 
@@ -186,6 +212,7 @@ void set_motor_speed(int velocity, motor_t a, motor_t b){
     digitalWrite(b.in2, LOW);
     analogWrite(b.enable, 0);
   } else if(velocity > 0){
+    velocity += 60;
     digitalWrite(a.in1, LOW);
     digitalWrite(a.in2, HIGH);
     analogWrite(a.enable, min(velocity, 255));
@@ -194,6 +221,7 @@ void set_motor_speed(int velocity, motor_t a, motor_t b){
     digitalWrite(b.in2, HIGH);
     analogWrite(b.enable, min(velocity, 255));
   } else {
+    velocity -= 60;
     digitalWrite(a.in1, HIGH);
     digitalWrite(a.in2, LOW);
     analogWrite(a.enable, min(-velocity, 255));
