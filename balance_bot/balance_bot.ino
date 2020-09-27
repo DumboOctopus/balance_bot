@@ -39,7 +39,7 @@ double total_theta = 0;
 
 double pitch;
 double lastError = 0;
-double Kp= 10, Ki=0.1, Kd=3;
+double Kp= 6, Ki=0.1, Kd=3;
 
 float filteredAccX=0;
 float filteredAccY=-9.8;
@@ -118,7 +118,7 @@ void loop() {
     float accYRaw = a.acceleration.y;
     float accZRaw = a.acceleration.z;
 
-    float alpha = 1;
+    float alpha = 0.5;
     filteredAccX = alpha*accXRaw + (1-alpha)*filteredAccX;
     filteredAccY = alpha*accYRaw + (1-alpha)*filteredAccY;
 
@@ -140,8 +140,8 @@ void loop() {
       roll = 0;
     else
       roll = atan2(-filteredAccY,filteredAccZ)*RAD_TO_DEG-90;//90+ atan2(accY, sqrt(accX * accX + accZ * accZ)) * RAD_TO_DEG;
-    Serial.println(roll);
-    double error = -roll;
+
+    float error = f_error(roll - RAD_TO_DEG*g.gyro.x);
     double cumError = error * elapsedTime;
     double rateError = (error - lastError)/elapsedTime;
     int output = (int)(Kp * error + Ki * cumError + Kd * rateError);
@@ -164,14 +164,20 @@ void loop() {
 //    Serial.print(", Z: ");
 //    Serial.print(g.gyro.z);
 //    Serial.println(" rad/s");
-  
-   
-    previousMillis = currentMillis;
-    //Serial.println(millis() - currentMillis);
+//    Serial.println(millis() - currentMillis);
+     previousMillis = currentMillis;
   }
-  
+
+}
 
 
+float f_error(float roll){
+    roll /= 5;
+    if(roll < 0) {
+       return roll*roll;
+    } else {
+      return -roll * roll;
+    }
 }
 
 
