@@ -41,6 +41,13 @@ double pitch;
 double lastError = 0;
 double Kp= 2, Ki=0.1, Kd=3;
 
+float previous_state[2] = {0,0};
+float prev_error[2][2];
+float Q_angle = 0.001;
+float Q_gyroBias = 0.003;
+float R_measure = 0.03;
+float angle = 0;
+
 // for timing
 unsigned long previousMillis = 0;
 
@@ -82,6 +89,12 @@ void setup() {
   pinMode(left_motor.enable, OUTPUT);
   pinMode(left_motor.in1, OUTPUT);
   pinMode(left_motor.in2, OUTPUT);
+
+  // kalman filter
+  prev_error[0][0] = 0;
+  prev_error[0][1] = 0;
+  prev_error[1][0] = 0;
+  prev_error[1][1] = 0;
   
 }
 
@@ -100,7 +113,7 @@ void loop() {
     mpu.getEvent(&a, &g, &temp);
   
     /* Print out the values */
-#if 1
+#if 0
     Serial.print("Acceleration X: ");
     Serial.print(a.acceleration.x);
     Serial.print(", Y: ");
@@ -111,18 +124,66 @@ void loop() {
     Serial.println(" m/s^2");
 #endif
 
-    pitch += (double)(180/3.14 *g.gyro.x * elapsedTime /1000.0);
-    double error = pitch;
+    //pitch += (double)(180/3.14 *g.gyro.x * elapsedTime /1000.0);
+    float reading = 180/3.14 * g.gyro.x;
+    // kalman filter
+    double dt = elapsedTime / 1000.0;
+    
+    float priori_state[2];
+    priori_state[0] = previous_state[0] + dt*(reading - previous_state[1]);
+
+    priori_state[1] = previous_state[1]; // we can't really predict the future bias from measurements
+
+    // estimate priori covariance
+    float priori_error[2][2];
+    priori_error[0][0] += dt * (
+      dt*prev_error[1][1] - prev_error[0][1] - prev_error[1][0] + Q_angle
+    );
+    priori_error[0][1] -= dt * prev_error[1][1];
+    priori_error[1][0] -= dt * prev_error[1][1];
+    priori_error[1][1] += Q_gyroBias * dt;
+
+    float y = reading - priori_state[0];
+
+    float S = priori_error[0][0] + R_measure;
+
+    float kalman_gain[2] = {priori_error[0][0]/S, priori_error[1][0]/S};
+
+
+    // update the previous state
+    // now previous_state contains the latest state information
+    
+    previous_state[0] += kalman_gain[0]*y;
+    previous_state[1] += kalman_gain[1]*y;
+
+    float P00_temp = prev_error[0][0];
+    float P01_temp = prev_error[0][1];
+    
+    prev_error[0][0] -= kalman_gain[0] * P00_temp;
+    prev_error[0][1] -= kalman_gain[0] * P01_temp;
+    prev_error[1][0] -= kalman_gain[1] * P00_temp;
+    prev_error[1][1] -= kalman_gain[1] * P01_temp;
+
+    // result
+    angle += previous_state[0]*dt;
+    // done with kalman filter
+#if 1
+    Serial.print("angle ");
+    Serial.print(angle);
+    Serial.print("g ");
+
+    Serial.print(g.gyro.x);
+    Serial.println();
+#endif 
+    
+    // PID control
+    double error = angle;
     double cumError = error * elapsedTime;
     double rateError = (error - lastError)/elapsedTime;
     int output = (int)(Kp * error + Ki * cumError + Kd * rateError);
     lastError = error;
 
-    if(output > 0){
-      output += 100;
-    } else if (output < 0){
-      output -= 100;
-    }
+   
     set_motor_speed(output, right_motor, left_motor);
 
 #if 0
@@ -132,16 +193,22 @@ void loop() {
     Serial.print(output);
     Serial.println(" rad");
 #endif 
-//    Serial.print("Rotation X: ");
-//    Serial.print(g.gyro.x);
-//    Serial.print(", Y: ");
-//    Serial.print(g.gyro.y);
-//    Serial.print(", Z: ");
-//    Serial.print(g.gyro.z);
-//    Serial.println(" rad/s");
-  
-   
-    previousMillis = currentMillis;
+#if 0
+    Serial.print("Rotation X: ");
+    Serial.print(g.gyro.x);
+    Serial.print(", Y: ");
+    Serial.print(g.gyro.y);
+    Serial.print(", Z: ");
+    Serial.print(g.gyro.z);
+    Serial.println(" rad/s");
+#endif
+#if 0
+  Serial.print("Loop time ");
+  Serial.println(millis() - currentMillis);
+
+#endif
+
+      previousMillis = currentMillis;
   }
   
 
@@ -186,6 +253,7 @@ void set_motor_speed(int velocity, motor_t a, motor_t b){
     digitalWrite(b.in2, LOW);
     analogWrite(b.enable, 0);
   } else if(velocity > 0){
+    velocity += 60;
     digitalWrite(a.in1, LOW);
     digitalWrite(a.in2, HIGH);
     analogWrite(a.enable, min(velocity, 255));
@@ -194,6 +262,7 @@ void set_motor_speed(int velocity, motor_t a, motor_t b){
     digitalWrite(b.in2, HIGH);
     analogWrite(b.enable, min(velocity, 255));
   } else {
+    velocity -= 60;
     digitalWrite(a.in1, HIGH);
     digitalWrite(a.in2, LOW);
     analogWrite(a.enable, min(-velocity, 255));
