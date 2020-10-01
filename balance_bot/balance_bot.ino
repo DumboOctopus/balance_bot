@@ -39,7 +39,7 @@ double total_theta = 0;
 
 double pitch;
 double lastError = 0;
-double Kp= 6, Ki=0.1, Kd=3;
+double Kp= 2.5, Ki=30/1000.0, Kd=0;
 
 float filteredAccX=0;
 float filteredAccY=-9.8;
@@ -69,6 +69,8 @@ void setup() {
     }
   }
 
+  Serial.print("hi");
+
   //motor right
   right_motor.enable = 5;
   right_motor.in1 = 8;
@@ -91,14 +93,15 @@ void setup() {
 
 void loop() {
   
-  long duration, inches, cm;
-  cm = read_ultrasonic(ultra_forward);
+//  long duration, inches, cm;
+//  cm = read_ultrasonic(ultra_forward);
 
   unsigned long currentMillis = millis();
   unsigned long elapsedTime = currentMillis - previousMillis;
 
 
   if (elapsedTime >= DELAY) {
+    float dt = elapsedTime/1000.0;
    /* Get new sensor events with the readings */
     sensors_event_t a, g, temp;
     mpu.getEvent(&a, &g, &temp);
@@ -141,21 +144,24 @@ void loop() {
     else
       roll = atan2(-filteredAccY,filteredAccZ)*RAD_TO_DEG-90;//90+ atan2(accY, sqrt(accX * accX + accZ * accZ)) * RAD_TO_DEG;
 
-    float error = f_error(roll - RAD_TO_DEG*g.gyro.x);
+    float error = f_error(roll - RAD_TO_DEG*g.gyro.x*dt);
     double cumError = error * elapsedTime;
-    double rateError = (error - lastError)/elapsedTime;
+    double rateError = (error - lastError)/dt;
     int output = (int)(Kp * error + Ki * cumError + Kd * rateError);
     lastError = error;
 
     
     set_motor_speed(output, right_motor, left_motor);
 
-#if 0
+#if 1
     Serial.print("Rotation X: ");
     Serial.print(pitch);
     Serial.print(", Output: ");
     Serial.print(output);
-    Serial.println(" rad");
+    Serial.print(" cumError: ");
+    Serial.print(cumError);
+    Serial.println(" x");
+    
 #endif 
 //    Serial.print("Rotation X: ");
 //    Serial.print(g.gyro.x);
@@ -172,12 +178,14 @@ void loop() {
 
 
 float f_error(float roll){
+    return -roll;
+    /*
     roll /= 5;
     if(roll < 0) {
        return roll*roll;
     } else {
       return -roll * roll;
-    }
+    }*/
 }
 
 
@@ -209,6 +217,7 @@ double lerp(double input, double end_output) {
 // 255 = 0.984 second/rev
 // 255/2 = 1.617 second/rev
 void set_motor_speed(int velocity, motor_t a, motor_t b){
+  velocity = constrain(velocity, -100, 100);
   if(velocity == 0){
     digitalWrite(a.in1, LOW);
     digitalWrite(a.in2, LOW);
@@ -218,23 +227,21 @@ void set_motor_speed(int velocity, motor_t a, motor_t b){
     digitalWrite(b.in2, LOW);
     analogWrite(b.enable, 0);
   } else if(velocity > 0){
-    velocity += 60;
     digitalWrite(a.in1, LOW);
     digitalWrite(a.in2, HIGH);
-    analogWrite(a.enable, min(velocity, 255));
+    analogWrite(a.enable, map(velocity, 0, 100, 70, 255));
     
     digitalWrite(b.in1, LOW);
     digitalWrite(b.in2, HIGH);
-    analogWrite(b.enable, min(velocity, 255));
+    analogWrite(b.enable, map(velocity, 0, 100, 70, 255));
   } else {
-    velocity -= 60;
     digitalWrite(a.in1, HIGH);
     digitalWrite(a.in2, LOW);
-    analogWrite(a.enable, min(-velocity, 255));
+    analogWrite(a.enable, map(-velocity, 0, 100, 70, 255));
     
     digitalWrite(b.in1, HIGH);
     digitalWrite(b.in2, LOW);
-    analogWrite(b.enable, min(-velocity, 255));
+    analogWrite(b.enable, map(-velocity, 0, 100, 70, 255));
   }
 
 }
