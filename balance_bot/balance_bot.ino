@@ -4,15 +4,12 @@
 
 // constants
 const int MPU=0x68; 
-const int DELAY = 10;
-int count=0;
-const double gravity = 980; // cm /s ^2
+const int DELAY = 5;
 
-// all in meters
+//cgs units
 const double height = 16.5;  // cm
 const double wheel_radius = 3.5; // cm
 const double mass = 390; // grams
-const double I = (1/3.0)*mass*height*height; // gram * cm ^2
 const double height_cg = 7;
 
 
@@ -26,7 +23,7 @@ struct motor_t {
   int enable, in1, in2;
 };
 
-
+const int POT_PIN = A0;
 
 
 // global vars.
@@ -39,7 +36,9 @@ double total_theta = 0;
 
 double pitch;
 double lastError = 0;
-double Kp= 2.5, Ki=30/1000.0, Kd=0;
+float Kp= 3, Ki=0.1, Kd=0.1;
+const float MAX_CUM_ERROR = 1000;
+float cumError = 0;
 
 float filteredAccX=0;
 float filteredAccY=-9.8;
@@ -88,6 +87,9 @@ void setup() {
   pinMode(left_motor.enable, OUTPUT);
   pinMode(left_motor.in1, OUTPUT);
   pinMode(left_motor.in2, OUTPUT);
+
+  //potentiometer
+  pinMode(POT_PIN, INPUT);
   
 }
 
@@ -114,17 +116,18 @@ void loop() {
     Serial.print(a.acceleration.y);
     Serial.print(", Z: ");
     Serial.print(a.acceleration.z);
-
     Serial.println(" m/s^2");
 #endif
+   
+    
+
     float accXRaw = a.acceleration.x;
     float accYRaw = a.acceleration.y;
     float accZRaw = a.acceleration.z;
 
-    float alpha = 0.5;
+    const float alpha = 0.4;
     filteredAccX = alpha*accXRaw + (1-alpha)*filteredAccX;
     filteredAccY = alpha*accYRaw + (1-alpha)*filteredAccY;
-
     filteredAccZ = alpha*accZRaw + (1-alpha)*filteredAccZ;
 
 #if 0
@@ -137,6 +140,8 @@ void loop() {
 
     Serial.println(" m/s^2");
 #endif
+    int value = analogRead(POT_PIN);
+    Kp = value/200.0;
 
     float roll;
     if(-0.1 < filteredAccZ  && filteredAccZ < 0.1)
@@ -145,22 +150,28 @@ void loop() {
       roll = atan2(-filteredAccY,filteredAccZ)*RAD_TO_DEG-90;//90+ atan2(accY, sqrt(accX * accX + accZ * accZ)) * RAD_TO_DEG;
 
     float error = f_error(roll - RAD_TO_DEG*g.gyro.x*dt);
-    double cumError = error * elapsedTime;
-    double rateError = (error - lastError)/dt;
+    cumError += error;
+    if(cumError > MAX_CUM_ERROR) cumError = MAX_CUM_ERROR;
+    float rateError = (error - lastError)/dt;
     int output = (int)(Kp * error + Ki * cumError + Kd * rateError);
     lastError = error;
 
     
     set_motor_speed(output, right_motor, left_motor);
 
+
+     
 #if 1
     Serial.print("Rotation X: ");
-    Serial.print(pitch);
+    Serial.print(roll);
     Serial.print(", Output: ");
     Serial.print(output);
-    Serial.print(" cumError: ");
-    Serial.print(cumError);
+    Serial.print(" errr: ");
+    Serial.print(error);
+     Serial.print(" Kp: ");
+    Serial.print(Kp);
     Serial.println(" x");
+    
     
 #endif 
 //    Serial.print("Rotation X: ");
@@ -178,7 +189,7 @@ void loop() {
 
 
 float f_error(float roll){
-    return -roll;
+    return -3-roll; //-3 deg is balancing point
     /*
     roll /= 5;
     if(roll < 0) {
