@@ -5,6 +5,8 @@
 // constants
 const int MPU=0x68; 
 const int DELAY = 10;
+#define DT 0.01         // [s/loop] loop period. 10ms
+#define AA 0.97         // complementary filter constant
 int count=0;
 const double gravity = 980; // cm /s ^2
 
@@ -39,10 +41,47 @@ double total_theta = 0;
 
 double pitch;
 double lastError = 0;
-double Kp= 2, Ki=0.1, Kd=3;
+double Kp= 2.5, Ki=0, Kd=0;
+double cumError = 0;
 
 // for timing
 unsigned long previousMillis = 0;
+
+float Q_angle  =  0.01;
+float Q_gyro   =  0.0003;
+float R_angle  =  0.01;
+float x_bias = 0;
+float y_bias = 0;
+float XP_00 = 0, XP_01 = 0, XP_10 = 0, XP_11 = 0;
+float YP_00 = 0, YP_01 = 0, YP_10 = 0, YP_11 = 0;
+float KFangleX = 0.0;
+float KFangleY = 0.0;
+float kalmanFilterX(float accAngle, float gyroRate){
+  float  y, S;
+  float K_0, K_1;
+
+
+  KFangleX += DT * (gyroRate - x_bias);
+
+  XP_00 +=  - DT * (XP_10 + XP_01) + Q_angle * DT;
+  XP_01 +=  - DT * XP_11;
+  XP_10 +=  - DT * XP_11;
+  XP_11 +=  + Q_gyro * DT;
+
+  y = accAngle - KFangleX;
+  S = XP_00 + R_angle;
+  K_0 = XP_00 / S;
+  K_1 = XP_10 / S;
+
+  KFangleX +=  K_0 * y;
+  x_bias  +=  K_1 * y;
+  XP_00 -= K_0 * XP_00;
+  XP_01 -= K_0 * XP_01;
+  XP_10 -= K_1 * XP_00;
+  XP_11 -= K_1 * XP_01;
+
+  return KFangleX;
+}
 
 
 
@@ -100,7 +139,7 @@ void loop() {
     mpu.getEvent(&a, &g, &temp);
   
     /* Print out the values */
-#if 1
+#if 0
     Serial.print("Acceleration X: ");
     Serial.print(a.acceleration.x);
     Serial.print(", Y: ");
@@ -111,25 +150,35 @@ void loop() {
     Serial.println(" m/s^2");
 #endif
 
-    pitch += (double)(180/3.14 *g.gyro.x * elapsedTime /1000.0);
-    double error = pitch;
-    double cumError = error * elapsedTime;
+    //float accXRaw = a.acceleration.x;
+    float accYRaw = a.acceleration.y;
+    float accZRaw = a.acceleration.z;
+    float roll;
+    if(-0.1 < accZRaw  && accZRaw < 0.1)
+      roll = 0;
+    else
+      roll = atan2(-accYRaw,accZRaw)*RAD_TO_DEG-90;//90+ atan2(accY, sqrt(accX * accX + accZ * accZ)) * RAD_TO_DEG;
+    
+    
+    pitch = kalmanFilterX(roll, g.gyro.x);
+    double error = pitch+2;
+    cumError += error * elapsedTime;
     double rateError = (error - lastError)/elapsedTime;
     int output = (int)(Kp * error + Ki * cumError + Kd * rateError);
     lastError = error;
 
     if(output > 0){
-      output += 100;
+      output += 60;
     } else if (output < 0){
-      output -= 100;
+      output -= 60;
     }
     set_motor_speed(output, right_motor, left_motor);
 
-#if 0
-    Serial.print("Rotation X: ");
+#if 1
+    Serial.print("Kalman: ");
     Serial.print(pitch);
-    Serial.print(", Output: ");
-    Serial.print(output);
+    Serial.print(", raw accel angle: ");
+    Serial.print(roll);
     Serial.println(" rad");
 #endif 
 //    Serial.print("Rotation X: ");
