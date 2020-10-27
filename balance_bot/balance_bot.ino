@@ -1,8 +1,10 @@
 #include<Wire.h>
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
 
 // constants
 const int MPU=0x68; 
-const int DELAY = 10;
+const int DT = 10;
 const double g = 980; // cm /s ^2
 
 // all in meters
@@ -32,6 +34,7 @@ struct motor_t {
 // global vars.
 struct ultrasonic_t ultra_down;
 struct ultrasonic_t ultra_forward;
+Adafruit_MPU6050 mpu;
 struct gyro_t gyro;
 struct motor_t right_motor;
 struct motor_t left_motor;
@@ -39,6 +42,17 @@ double total_theta = 0;
 
 // for timing
 unsigned long previousMillis = 0;
+
+//filter
+float Q_angle  =  0.01;
+float Q_gyro   =  0.0003;
+float R_angle  =  0.01;
+float x_bias = 0;
+float y_bias = 0;
+float XP_00 = 0, XP_01 = 0, XP_10 = 0, XP_11 = 0;
+float YP_00 = 0, YP_01 = 0, YP_10 = 0, YP_11 = 0;
+float KFangleX = 0.0;
+float KFangleY = 0.0;
 
 
 
@@ -73,41 +87,59 @@ void setup() {
   pinMode(left_motor.enable, OUTPUT);
   pinMode(left_motor.in1, OUTPUT);
   pinMode(left_motor.in2, OUTPUT);
+
+   // Try to initialize mpu
+  if (!mpu.begin()) {
+    Serial.println("Failed to find MPU6050 chip");
+    while (1) {
+      delay(10);
+    }
+  }
   
   Serial.begin(9600); // Starting Serial Terminal
 }
 
 void loop() {
   
-  long duration, inches, cm;
-  cm = read_ultrasonic(ultra_forward);
-
+ 
   unsigned long currentMillis = millis();
 
-  if (currentMillis - previousMillis >= DELAY) {
+  if (currentMillis - previousMillis >= DT) {
     previousMillis = currentMillis;
     
-    
-    read_gyro(gyro);
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+
+    float angle = RAD_TO_DEG* atan2(a.acceleration.y, a.acceleration.z);
+    total_theta = kalmanFilterY(angle, g.gyro.x);
+
+    #if 0
+    Serial.print("Acceleration X: ");
+    Serial.print(a.acceleration.x);
+    Serial.print(", Y: ");
+    Serial.print(a.acceleration.y);
+    Serial.print(", Z: ");
+    Serial.print(a.acceleration.z);
+
+    Serial.print("  A");
+    Serial.print(RAD_TO_DEG* angle);
+
+    Serial.print("gx:   ");
+    Serial.print(g.gyro.x);
+
+    Serial.print("Total theta: ");
+    Serial.print(total_theta);
+
+    Serial.println("");
+#endif
     
 
-    // formula = h/r cos(theta) * dtheta/dt
-    // dtheta/dt = gyro + acceleration calculated from theta
-    double theta_rad  =DEG_TO_RAD*total_theta;
     
-    double true_torque_arm = sqrt(wheel_radius*wheel_radius + height_cg*height_cg + 2*wheel_radius*height_cg*cos(theta_rad));
-    double alpha = asin(true_torque_arm * sin(height_cg * g * sin(theta_rad)/I) / height_cg);
-    
-    
-    double dthetadt = DEG_TO_RAD*gyro.gy_y + DELAY/1000.0*alpha;
-    double value = height/wheel_radius * cos(DEG_TO_RAD * total_theta) * dthetadt;
-    double translate = 4*255* value;
-    set_motor_speed(translate, right_motor, left_motor);
+    float value = 5*total_theta;
+    set_motor_speed(value, right_motor, left_motor);
 #if 1
     Serial.print("Data: ");
-    Serial.print(" | DEG_TO_RAD*gyro.gy_y = "); Serial.print(DEG_TO_RAD*gyro.gy_y);
-    Serial.print(" | true_torque_arm = "); Serial.print(true_torque_arm);
-    Serial.print(" | alpha = "); Serial.print(alpha);
+    Serial.print(" | DEG_TO_RAD*gyro.gy_y = "); Serial.print(total_theta);
     Serial.print(" | value = "); Serial.print(value);
       Serial.println(" ");
 
@@ -126,58 +158,35 @@ void loop() {
 
 }
 
-void read_gyro(struct gyro_t &g){
-  Wire.beginTransmission(MPU);
-  Wire.write(0x3B);  
-  Wire.endTransmission(false);
-  Wire.requestFrom(MPU,12,true);  
-  g.ac_x = Wire.read()<<8 | Wire.read(); // reading registers: 0x3B (ACCEL_XOUT_H) and 0x3C (ACCEL_XOUT_L)
-  g.ac_y = Wire.read()<<8 | Wire.read(); // reading registers: 0x3D (ACCEL_YOUT_H) and 0x3E (ACCEL_YOUT_L)
-  g.ac_z = Wire.read()<<8 | Wire.read(); // reading registers: 0x3F (ACCEL_ZOUT_H) and 0x40 (ACCEL_ZOUT_L)
 
-  g.gy_x = (int16_t)(Wire.read()<<8 | Wire.read()); // reading registers: 0x43 (GYRO_XOUT_H) and 0x44 (GYRO_XOUT_L)
-  g.gy_y = (int16_t)(Wire.read()<<8 | Wire.read()); // reading registers: 0x45 (GYRO_YOUT_H) and 0x46 (GYRO_YOUT_L)
-  
-  g.gy_z = (int16_t)(Wire.read()<<8 | Wire.read()); // reading registers: 0x47 (GYRO_ZOUT_H) and 0x48 (GYRO_ZOUT_L)
-
-
-  g.gy_x *= 1/1800.0; // minutes
-  g.gy_y *= 1/1800.0;
-  g.gy_z *= 1/1800.0;
-  if(-0.1 <= g.gy_y && g.gy_y <= 0.1)
-    g.gy_y = 0; 
-  
-  
-  total_theta += gyro.gy_y;
-
-
-  
-  
-  
+float kalmanFilterY(float accAngle, float gyroRate)
+{
+  float  y, S;
+  float K_0, K_1;
+ 
+  KFangleY += DT * (gyroRate - y_bias);
+ 
+  YP_00 +=  - DT * (YP_10 + YP_01) + Q_angle * DT;
+  YP_01 +=  - DT * YP_11;
+  YP_10 +=  - DT * YP_11;
+  YP_11 +=  + Q_gyro * DT;
+ 
+  y = accAngle - KFangleY;
+  S = YP_00 + R_angle;
+  K_0 = YP_00 / S;
+  K_1 = YP_10 / S;
+ 
+  KFangleY +=  K_0 * y;
+  y_bias  +=  K_1 * y;
+  YP_00 -= K_0 * YP_00;
+  YP_01 -= K_0 * YP_01;
+  YP_10 -= K_1 * YP_00;
+  YP_11 -= K_1 * YP_01;
+ 
+  return KFangleY;
 }
 
 
-
-int read_ultrasonic(struct ultrasonic_t ultrasonic){
-  long duration, inches, cm;
-   pinMode(ultrasonic.pingPin, OUTPUT);
-   digitalWrite(ultrasonic.pingPin, LOW);
-   delayMicroseconds(2);
-   digitalWrite(ultrasonic.pingPin, HIGH);
-   delayMicroseconds(10);
-   digitalWrite(ultrasonic.pingPin, LOW);
-   pinMode(ultrasonic.echoPin, INPUT);
-   duration = pulseIn(ultrasonic.echoPin, HIGH);
-   
-   cm = microsecondsToCentimeters(duration);
-   
-   return cm;
-}
-
-
-double lerp(double input, double end_output) {
-   return 255 * input / end_output;
-}
 
 
 //velocity between -255 and 255
@@ -210,12 +219,4 @@ void set_motor_speed(int velocity, motor_t a, motor_t b){
     analogWrite(b.enable, min(-velocity, 255));
   }
 
-}
-
-long microsecondsToInches(long microseconds) {
-   return microseconds / 74 / 2;
-}
-
-long microsecondsToCentimeters(long microseconds) {
-   return microseconds / 29 / 2;
 }
